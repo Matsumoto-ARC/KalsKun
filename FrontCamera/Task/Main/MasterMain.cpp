@@ -97,7 +97,7 @@ ResultEnum masterMain(const int cameraNo)
             Mat masterCapture = pShareMemory->Capture.Data[captureIndex];
 
             // 2つの画像からステレオマッチングを行い、物体との距離を測定する
-
+            StereoMatching(receiveCapture, masterCapture);
 
         }
 
@@ -118,4 +118,21 @@ FINISH :
 
     masterFinalize();
     return retVal;
+}
+
+void StereoMatching(Mat left_img, Mat right_img) {
+    /* 視差データ */
+    Mat disparity_data, disparity_map;
+    double min, max;
+
+    StereoSGBM ssgbm = StereoSGBM(minDisparity, numDisparities, SADWindowSize);
+    /* パラメータ設定 */
+    ssgbm.speckleWindowSize = 200;
+    ssgbm.speckleRange = 1;
+    /* 視差マップを取得する */
+    ssgbm.operator()(left_img, right_img, disparity_data);
+    minMaxLoc(disparity_data, &min, &max);
+    disparity_data.convertTo(disparity_map, CV_8UC3, 255 / (max - min), -255 * min / (max - min));
+    /* ヒストグラムの等化 */
+    equalizeHist(disparity_map, disparity_map);
 }
