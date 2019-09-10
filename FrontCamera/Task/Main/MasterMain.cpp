@@ -77,6 +77,7 @@ ResultEnum masterMain(const int cameraNo)
     unsigned char captureIndex = -1;
     unsigned char receiveIndex = -1;
     int key = 0;
+    double distance;
 
     if (masterInitialize(cameraNo) != ResultEnum::NormalEnd)
     {
@@ -97,7 +98,7 @@ ResultEnum masterMain(const int cameraNo)
             Mat masterCapture = pShareMemory->Capture.Data[captureIndex];
 
             // 2つの画像からステレオマッチングを行い、物体との距離を測定する
-            StereoMatching(receiveCapture, masterCapture);
+            distance = StereoMatching(receiveCapture, masterCapture);
 
         }
 
@@ -120,10 +121,25 @@ FINISH :
     return retVal;
 }
 
-void StereoMatching(Mat left_img, Mat right_img) {
+double StereoMatching(Mat left_img, Mat right_img) {
     /* 視差データ */
     Mat disparity_data, disparity_map;
+    Mat cameraMatrix = (Mat_<float>(3, 3) << 
+                        320, 0, 160, 
+                        0, 320, 120,
+                        0, 0, 1);
+    Mat distCoeffs = (Mat_<float>(5, 1) << 0, 0, 0, 0, 0);
+    Mat t = (Mat_<float>(3, 1) << -baseline, 0, 0);
+    Mat R = Mat::eye(3, 3, CV_64F);
+    Mat R1, R2, P1, P2, Q;
+    Mat _3dImage;
+    Mat channels[3];
+    double baseline = cameraDistance;
+    double z = 0.0, temp_z;
     double min, max;
+
+    Q = makeQMatrix(Point2d((left_img.cols - 1.0) / 2.0, (left_img.rows - 1.0) / 2.0), cameraFocus, baseline);
+    // stereoRectify(camareMatrix, distCoeffs, cameraMatrix, distCoeffs, Size(320, 240), R, t, R1, R2, P1, P2, Q);
 
     StereoSGBM ssgbm = StereoSGBM(minDisparity, numDisparities, SADWindowSize);
     /* パラメータ設定 */
@@ -135,4 +151,24 @@ void StereoMatching(Mat left_img, Mat right_img) {
     disparity_data.convertTo(disparity_map, CV_8UC3, 255 / (max - min), -255 * min / (max - min));
     /* ヒストグラムの等化 */
     equalizeHist(disparity_map, disparity_map);
+
+    reprojectImageTo3D(disparity_map, _3dImage, Q);
+    split(_3dImage, channels);
+
+    for (int j = 0; j < _3dImage.rows; j++) {
+        for(int i = 0; i < _3dImage.cols; i++) {
+            /* temp_x = channels[0].at<float>(j, i); */
+            /* temp_y = channels[1].at<float>(j, i); */
+            temp_z = channels[3].at<float>(j, i);
+            /* zが初期値の場合、値を更新する */
+            if ((z == 0) && (temp_z > 0)) {
+                z = temp_z;
+            /* temp_zの方が小さい場合、値を更新する */
+            } else if((z > temp_z) && (temp_z > 0)) {
+                z = temp_z;     /* 一番近い距離 */
+            }
+        }
+    }
+
+    return z;
 }
